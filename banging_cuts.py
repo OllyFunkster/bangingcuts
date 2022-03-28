@@ -10,7 +10,7 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 1),
+    'version': (0, 2),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
@@ -58,43 +58,67 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         samplerate = scene.render.ffmpeg.audio_mixrate
         reference_start = 0
         wm = context.window_manager
+        soundstrips = []
         for strip in context.sequences:
             if strip.select and strip.type == 'SOUND':
-                strip_hard_start = strip.frame_start
-                reference_start = strip_hard_start
-                start_offset = strip.frame_offset_start
-                # can't access audio samples directly from a sequencer audio strip, so instead we make a copy as an Aud sound object...
-                audsound = aud.Sound(bpy.path.abspath(strip.sound.filepath))
-                cachedsound = audsound.cache()
-                dataarray = audsound.data()
-                numsamples = dataarray.size / dataarray.ndim
-                numdim = dataarray.ndim
-                # only start looking where the strip actually starts
-                sampleindex = int((start_offset / actual_fps) * samplerate)
-                frame = 0
-                wm.progress_begin(0, 100)
-                progress = 0
-                progress_prev = 0
-                while sampleindex < numsamples:
-                    frame = actual_fps * (sampleindex / samplerate)
-                    if dataarray[sampleindex][0] > thresh or dataarray[sampleindex][0] < (0 - thresh):
-                        inpoint = int(frame - self.frames_preroll)
-                        if inpoint < 0:
-                            inpoint = 0
-                        outpoint = int(frame + self.frames_postroll)
-                        edits.append([inpoint, outpoint])
-                        # advance until after postroll since we have already got this one
-                        sampleindex += int((self.frames_postroll / actual_fps) * samplerate)
-                    sampleindex += 1
-                    progress = int(100 * sampleindex / numsamples)
-                    if progress_prev != progress:
-                        progress_prev = progress
-                        wm.progress_update(progress)
-                wm.progress_end()
-                # TODO: do we need to delete the audsound object and/or clear the cache? or is that taken care of by the script exiting?
+                soundstrips.append(strip)
+        
+        if len(soundstrips) == 0:
+            self.report({'WARNING'}, 'No sound strips selected')
+            return {'CANCELLED'}
+        
+        ref_strip = soundstrips[0]
+        if len(soundstrips) > 1:
+            # need to figure out which strip has the highest channel number
+            for strip in soundstrips:
+                if strip.channel > ref_strip.channel:
+                    ref_strip = strip
+        
+        strip_hard_start = ref_strip.frame_start
+        reference_start = strip_hard_start
+        start_offset = ref_strip.frame_offset_start
+        # can't access audio samples directly from a sequencer audio strip, so instead we make a copy as an Aud sound object...
+        audsound = aud.Sound(bpy.path.abspath(ref_strip.sound.filepath))
+        cachedsound = audsound.cache()
+        dataarray = audsound.data()
+        audiochannels = dataarray.shape[1]
+        numsamples = dataarray.shape[0]
+        self.report({'INFO'}, 'Ref strip has {} channels, {} samples per channel!'.format(audiochannels, numsamples))
+        # only start looking where the ref_strip actually starts
+        startsample = int((start_offset / actual_fps) * samplerate)
+        # and only look until where the ref strip ends, even if the audio itself is longer
+        endsample = startsample + int((ref_strip.frame_final_duration / actual_fps) * samplerate)
+        # add some room at the end so that we always have room for the last post-roll
+        endsample -= int((self.frames_postroll / actual_fps) * samplerate)
+        
+        # ready to look for peaks!
+        frame = 0
+        wm.progress_begin(0, 100)
+        progress = 0
+        progress_prev = 0
+        sampleindex = startsample
+        while sampleindex < endsample:
+            frame = actual_fps * (sampleindex / samplerate)
+            if dataarray[sampleindex][0] > thresh or dataarray[sampleindex][0] < (0 - thresh):
+                inpoint = int(frame - self.frames_preroll)
+                if inpoint < 0:
+                    inpoint = 0
+                outpoint = int(frame + self.frames_postroll)
+                edits.append([inpoint, outpoint])
+                # advance until after postroll since we have already got this one
+                sampleindex += int((self.frames_postroll / actual_fps) * samplerate)
+                # also advance until after next preroll so we don't get repeats
+                sampleindex += int((self.frames_preroll / actual_fps) * samplerate)
+            sampleindex += 1
+            progress = int((100 * (sampleindex - startsample)) / (endsample - startsample))
+            if progress_prev != progress:
+                progress_prev = progress
+                wm.progress_update(progress)
+        wm.progress_end()
+        # TODO: do we need to delete the audsound object and/or clear the cache? or is that taken care of by the script exiting?
 
         if len(edits) == 0:
-            self.report({'WARNING'}, 'There is no selection or no peaks above threshold')
+            self.report({'WARNING'}, 'No peaks found above threshold')
             return {'CANCELLED'}
             
         # make the edits
@@ -112,8 +136,8 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                     keeps.append(newstrip_keep)
                     newstrip_bin = newstrip_keep.split(frame=edits[edit_index][1] + strip_hard_start + ref_offset, split_method='SOFT')
                     newstrip_keep = newstrip_bin
-                # delete the gaps
-                if newstrip_bin.frame_final_duration > 0:
+                # delete the final unused bit, if it exists
+                if newstrip_bin is not None and newstrip_bin.frame_final_duration > 0:
                     bpy.context.scene.sequence_editor.sequences.remove(newstrip_bin)
                 # shuffle kept bits together
                 for bit_index in range(len(keeps) - 1):
