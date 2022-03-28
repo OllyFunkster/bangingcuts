@@ -12,7 +12,9 @@ Select your strips - generally, one video strip and one audio strip that are the
 
 Click on Banging Cuts on the top right of the sequencer panel, and choose Make Cuts. A dialog appears and you can choose how many frames you want before and after the peak, and the audio level to use as the threshold. Make some appropriate choices.
 
-Click OK, and after a short pause your clip will be reduced to however many smaller clips each containing one peak.
+Click OK, and after a short* pause your clip will be reduced to however many smaller clips each containing one peak.
+
+*depends on variable, obviously. It's not exactly efficient, and if you have a long clip it'll take a while - it shows progress via the mouse cursor.
 
 ## Limitations:
 - There's no implicit support for working on multiple audio clips, as it just uses whichever selected audio clip comes first in the internal list (which may not correspond to selection order or scene channel). Might work, might not. Let me know.
