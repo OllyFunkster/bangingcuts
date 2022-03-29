@@ -10,11 +10,13 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 2),
+    'version': (0, 3),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
 }
+
+DEBUG = False
 
 import bpy
 import aud
@@ -83,13 +85,16 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         dataarray = audsound.data()
         audiochannels = dataarray.shape[1]
         numsamples = dataarray.shape[0]
-        self.report({'INFO'}, 'Ref strip has {} channels, {} samples per channel!'.format(audiochannels, numsamples))
+        if DEBUG:
+            self.report({'INFO'}, 'Ref strip has {} channels, {} samples per channel!'.format(audiochannels, numsamples))
         # only start looking where the ref_strip actually starts
         startsample = int((start_offset / actual_fps) * samplerate)
         # and only look until where the ref strip ends, even if the audio itself is longer
         endsample = startsample + int((ref_strip.frame_final_duration / actual_fps) * samplerate)
+        # leave room for the first preroll
+        startsample += int(((self.frames_preroll + 1) / actual_fps) * samplerate)
         # add some room at the end so that we always have room for the last post-roll
-        endsample -= int((self.frames_postroll / actual_fps) * samplerate)
+        endsample -= int(((self.frames_postroll + 1) / actual_fps) * samplerate)
         
         # ready to look for peaks!
         frame = 0
@@ -124,16 +129,24 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         # make the edits
         for strip in bpy.context.sequences:
             if strip.select:
+                if DEBUG:
+                    self.report({'INFO'}, 'Strip {} start {}'.format(strip.name, strip.frame_start + strip.frame_offset_start))
                 keeps = []
                 strip_hard_start = strip.frame_start
                 ref_offset = reference_start - strip_hard_start
                 newstrip_keep = strip
                 newstrip_bin = strip
                 for edit_index in range(len(edits)):
-                    newstrip_keep = newstrip_keep.split(frame=edits[edit_index][0] + strip_hard_start + ref_offset, split_method='SOFT')
-                    if newstrip_bin.frame_final_duration > 0:
+                    if DEBUG:
+                        self.report({'INFO'}, 'Edit {}, in {} out {}'.format(edit_index, reference_start + edits[edit_index][0], reference_start + edits[edit_index][1]))
+                    if edits[edit_index][0] + strip_hard_start + ref_offset <= (newstrip_bin.frame_start + newstrip_bin.frame_offset_start):
+                        # nothing to trim off and bin from before the good bit
+                        newstrip_bin = None
+                    else:
+                        newstrip_keep = newstrip_keep.split(frame=edits[edit_index][0] + strip_hard_start + ref_offset, split_method='SOFT')
                         bpy.context.scene.sequence_editor.sequences.remove(newstrip_bin)
                     keeps.append(newstrip_keep)
+                    # make the cut at the outpoint of the good bit, and set the clip to be binned next time round
                     newstrip_bin = newstrip_keep.split(frame=edits[edit_index][1] + strip_hard_start + ref_offset, split_method='SOFT')
                     newstrip_keep = newstrip_bin
                 # delete the final unused bit, if it exists
