@@ -5,7 +5,7 @@ Blender VSE Addon to cut up audio and video clips based on peaks in the audio tr
 I got bored of doing this kind of editing manually.
 
 ## How to install
-Download the zip of this repo, save it wherever you like. Open Blender preferences and navigate to Addons, then choose Install and pick the zip file. Tick the box at the left of the list to enable the addon, and you should see a Banging Cuts menu appear on the right hand side of the Sequencer area's menu bar.
+[Download the zip](https://github.com/OllyFunkster/bangingcuts/archive/refs/heads/main.zip) of this repo, save it wherever you like. Open Blender preferences and navigate to Addons, then choose Install and pick the zip file. Tick the box at the left of the list to enable the addon, and you should see a Banging Cuts menu appear on the right hand side of the Sequencer area's menu bar.
 
 ## How to use it:
 Select your strips - generally, one video strip and one audio strip that are the same length and are in sync with each other. Optionally, multiple strips - the audio strip with the highest channel number in the sequencer will be used as the reference strip.
