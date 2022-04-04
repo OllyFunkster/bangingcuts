@@ -10,13 +10,16 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 3),
+    'version': (0, 4),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
 }
 
 DEBUG = False
+
+# how many audio samples to use for debounce
+TRIGGER_DEBOUNCE_COUNT_FALLING = 50
 
 import bpy
 import aud
@@ -48,13 +51,21 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         min=1,
         )
     
+    auto_holdoff: bpy.props.BoolProperty(
+        name='Auto holdoff',
+        description="don't allow retrigger until level drops below threshold",
+        default=True,
+        )
+    
     def invoke(self, context, event):
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
 
     def execute(self, context):
         edits = []
-        thresh = pow(10,self.audio_thresh_db / 20.0)
+        thresh_rising = pow(10,self.audio_thresh_db / 20.0)
+        # falling threshold is a little lower than rising, for a little bit of hysteresis
+        thresh_falling = pow(10,(self.audio_thresh_db - 2) / 20.0)
         scene = context.scene
         actual_fps = scene.render.fps / scene.render.fps_base
         samplerate = scene.render.ffmpeg.audio_mixrate
@@ -101,10 +112,26 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         wm.progress_begin(0, 100)
         progress = 0
         progress_prev = 0
+        triggered = False
         sampleindex = startsample
         while sampleindex < endsample:
             frame = actual_fps * (sampleindex / samplerate)
-            if dataarray[sampleindex][0] > thresh or dataarray[sampleindex][0] < (0 - thresh):
+            if triggered:
+                if dataarray[sampleindex][0] < thresh_falling and dataarray[sampleindex][0] > (0 - thresh_falling):
+                    trigger_debounce += 1
+                    if trigger_debounce > TRIGGER_DEBOUNCE_COUNT_FALLING:
+                        if DEBUG:
+                            self.report({'INFO'}, 'Back below threshold at frame {}'.format(frame))
+                        triggered = False
+                        trigger_debounce = 0
+                else:
+                    trigger_debounce = 0
+            elif dataarray[sampleindex][0] > thresh_rising or dataarray[sampleindex][0] < (0 - thresh_rising):
+                if self.auto_holdoff:
+                    if DEBUG:
+                        self.report({'INFO'}, 'Marking trigger active for holdoff at frame {}'.format(frame))
+                    triggered = True
+                    trigger_debounce = 0
                 inpoint = int(frame - self.frames_preroll)
                 if inpoint < 0:
                     inpoint = 0
