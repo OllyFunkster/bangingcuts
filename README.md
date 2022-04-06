@@ -14,9 +14,10 @@ Click on Banging Cuts on the top right of the sequencer panel, and choose Make C
 
 Click OK, and after a short* pause your clip will be reduced to however many smaller clips each containing one peak.
 
+If your other strips were shorter than your reference strip, you will just get the bits of those strips that overlapped peaks in the reference.
+
 *depends on variable, obviously. It's not exactly efficient, and if you have a long clip it'll take a while - it shows progress via the mouse cursor.
 
 ## Limitations:
 - Goodness knows what happens if the video strip has modifier strips on it - use the addon before you start getting into crossfades etc.
-- It can cope with audio and video clips whose sources have different lengths etc. (e.g. audio from a separate recorder that you have synced) but their strips need to be no shorter than the reference strip - if the audio has peaks after the end of the video, it'll break.
 - Since audio strips can only be shuffled around at 1-frame resolution, the peaks won't be perfectly aligned with a frame, so if you're going for a super tight clip to get a buzz of events, the period will be a bit wonky. If this is a problem you can maybe resample to a higher framerate.

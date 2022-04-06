@@ -10,7 +10,7 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 4),
+    'version': (0, 5),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
@@ -152,7 +152,15 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         if len(edits) == 0:
             self.report({'WARNING'}, 'No peaks found above threshold')
             return {'CANCELLED'}
-            
+        
+        # work out the final timeline positions for each of the clips once shuffled
+        clip_starts = []
+        clip_starts.append(edits[0][0] + reference_start)
+        for edit_index in range(1, len(edits)):
+            clip_starts.append(clip_starts[edit_index - 1] + self.frames_preroll + self.frames_postroll)
+            if DEBUG:
+                self.report({'INFO'}, 'Final position {} start {}'.format(edit_index, clip_starts[edit_index]))
+        
         # make the edits
         for strip in bpy.context.sequences:
             if strip.select:
@@ -163,9 +171,17 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                 ref_offset = reference_start - strip_hard_start
                 newstrip_keep = strip
                 newstrip_bin = strip
+                begin_index_offset = 0
                 for edit_index in range(len(edits)):
+                    if edits[edit_index][0] + strip_hard_start + ref_offset >= (newstrip_keep.frame_start + newstrip_keep.frame_offset_start + newstrip_keep.frame_final_duration):
+                        # inpoint is beyond the end of this strip, we are done here
+                        break
                     if DEBUG:
                         self.report({'INFO'}, 'Edit {}, in {} out {}'.format(edit_index, reference_start + edits[edit_index][0], reference_start + edits[edit_index][1]))
+                    if edits[edit_index][1] + strip_hard_start + ref_offset <= (newstrip_bin.frame_start + newstrip_bin.frame_offset_start):
+                        # entire edit is before the start of this clip, ignore it (keeping a note of the offset for later correct positioning)
+                        begin_index_offset += 1
+                        continue
                     if edits[edit_index][0] + strip_hard_start + ref_offset <= (newstrip_bin.frame_start + newstrip_bin.frame_offset_start):
                         # nothing to trim off and bin from before the good bit
                         newstrip_bin = None
@@ -173,6 +189,10 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                         newstrip_keep = newstrip_keep.split(frame=edits[edit_index][0] + strip_hard_start + ref_offset, split_method='SOFT')
                         bpy.context.scene.sequence_editor.sequences.remove(newstrip_bin)
                     keeps.append(newstrip_keep)
+                    if edits[edit_index][1] + strip_hard_start + ref_offset >= (newstrip_keep.frame_start + newstrip_keep.frame_offset_start + newstrip_keep.frame_final_duration):
+                        # the outpoint is beyond the end of the remaining strip, we are done here.
+                        newstrip_bin = None
+                        break
                     # make the cut at the outpoint of the good bit, and set the clip to be binned next time round
                     newstrip_bin = newstrip_keep.split(frame=edits[edit_index][1] + strip_hard_start + ref_offset, split_method='SOFT')
                     newstrip_keep = newstrip_bin
@@ -180,11 +200,8 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                 if newstrip_bin is not None and newstrip_bin.frame_final_duration > 0:
                     bpy.context.scene.sequence_editor.sequences.remove(newstrip_bin)
                 # shuffle kept bits together
-                for bit_index in range(len(keeps) - 1):
-                    distance = 0 - (keeps[bit_index + 1].frame_offset_start - keeps[bit_index].frame_offset_start) + keeps[bit_index].frame_final_duration
-                    # base the new start on the start of the previous clip
-                    new_start = keeps[bit_index].frame_start + distance
-                    keeps[bit_index + 1].frame_start = new_start
+                for bit_index in range(len(keeps)):
+                    keeps[bit_index].frame_start = clip_starts[bit_index + begin_index_offset] - keeps[bit_index].frame_offset_start
                     
         self.report({'INFO'}, 'Banged {} Cuts!'.format(len(edits)))
         return {'FINISHED'}
