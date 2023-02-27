@@ -18,6 +18,9 @@ If your other strips were shorter than your reference strip, you will just get t
 
 *depends on variable, obviously. It's not exactly efficient, and if you have a long clip it'll take a while - it shows progress via the mouse cursor.
 
+## Demo
+[![Banging Cuts demo video on YouTube](https://img.youtube.com/vi/9Aih2OgvYlo/0.jpg)](http://www.youtube.com/watch?v=9Aih2OgvYlo)
+
 ## Limitations:
 - Goodness knows what happens if the video strip has modifier strips on it - use the addon before you start getting into crossfades etc.
 - Since audio strips can only be shuffled around at 1-frame resolution, the peaks won't be perfectly aligned with a frame, so if you're going for a super tight clip to get a buzz of events, the period will be a bit wonky. If this is a problem you can maybe resample to a higher framerate.
