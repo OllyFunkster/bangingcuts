@@ -10,7 +10,7 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 5),
+    'version': (0, 6),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
@@ -68,7 +68,7 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         thresh_falling = pow(10,(self.audio_thresh_db - 2) / 20.0)
         scene = context.scene
         actual_fps = scene.render.fps / scene.render.fps_base
-        samplerate = scene.render.ffmpeg.audio_mixrate
+        scene_samplerate = scene.render.ffmpeg.audio_mixrate
         reference_start = 0
         wm = context.window_manager
         soundstrips = []
@@ -96,16 +96,21 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         dataarray = audsound.data()
         audiochannels = dataarray.shape[1]
         numsamples = dataarray.shape[0]
+        # can't get the strip's samplerate directly, so work it out the hard way...
+        strip_samplerate = numsamples / (ref_strip.frame_duration / actual_fps)
         if DEBUG:
             self.report({'INFO'}, 'Ref strip has {} channels, {} samples per channel!'.format(audiochannels, numsamples))
+            self.report({'INFO'}, 'start_offset is {}, actual_fps is {}, scene_samplerate is {}, strip_samplerate is {}, frame_final_duration is {}'.format(start_offset, actual_fps, scene_samplerate, strip_samplerate, ref_strip.frame_final_duration))
         # only start looking where the ref_strip actually starts
-        startsample = int((start_offset / actual_fps) * samplerate)
+        startsample = int((start_offset / actual_fps) * strip_samplerate)
         # and only look until where the ref strip ends, even if the audio itself is longer
-        endsample = startsample + int((ref_strip.frame_final_duration / actual_fps) * samplerate)
+        endsample = startsample + int((ref_strip.frame_final_duration / actual_fps) * strip_samplerate)
         # leave room for the first preroll
-        startsample += int(((self.frames_preroll + 1) / actual_fps) * samplerate)
+        startsample += int(((self.frames_preroll + 1) / actual_fps) * strip_samplerate)
         # add some room at the end so that we always have room for the last post-roll
-        endsample -= int(((self.frames_postroll + 1) / actual_fps) * samplerate)
+        endsample -= int(((self.frames_postroll + 1) / actual_fps) * strip_samplerate)
+        if DEBUG:
+            self.report({'INFO'}, 'startsample is {}, endsample is {}'.format(startsample, endsample))
         
         # ready to look for peaks!
         frame = 0
@@ -115,7 +120,7 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         triggered = False
         sampleindex = startsample
         while sampleindex < endsample:
-            frame = actual_fps * (sampleindex / samplerate)
+            frame = actual_fps * (sampleindex / strip_samplerate)
             if triggered:
                 if dataarray[sampleindex][0] < thresh_falling and dataarray[sampleindex][0] > (0 - thresh_falling):
                     trigger_debounce += 1
@@ -138,9 +143,9 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                 outpoint = int(frame + self.frames_postroll)
                 edits.append([inpoint, outpoint])
                 # advance until after postroll since we have already got this one
-                sampleindex += int((self.frames_postroll / actual_fps) * samplerate)
+                sampleindex += int((self.frames_postroll / actual_fps) * strip_samplerate)
                 # also advance until after next preroll so we don't get repeats
-                sampleindex += int((self.frames_preroll / actual_fps) * samplerate)
+                sampleindex += int((self.frames_preroll / actual_fps) * strip_samplerate)
             sampleindex += 1
             progress = int((100 * (sampleindex - startsample)) / (endsample - startsample))
             if progress_prev != progress:
@@ -186,7 +191,7 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                         # nothing to trim off and bin from before the good bit
                         newstrip_bin = None
                     else:
-                        newstrip_keep = newstrip_keep.split(frame=edits[edit_index][0] + strip_hard_start + ref_offset, split_method='SOFT')
+                        newstrip_keep = newstrip_keep.split(frame=(int)(edits[edit_index][0] + strip_hard_start + ref_offset), split_method='SOFT')
                         bpy.context.scene.sequence_editor.sequences.remove(newstrip_bin)
                     keeps.append(newstrip_keep)
                     if edits[edit_index][1] + strip_hard_start + ref_offset >= (newstrip_keep.frame_start + newstrip_keep.frame_offset_start + newstrip_keep.frame_final_duration):
@@ -194,7 +199,7 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                         newstrip_bin = None
                         break
                     # make the cut at the outpoint of the good bit, and set the clip to be binned next time round
-                    newstrip_bin = newstrip_keep.split(frame=edits[edit_index][1] + strip_hard_start + ref_offset, split_method='SOFT')
+                    newstrip_bin = newstrip_keep.split(frame=(int)(edits[edit_index][1] + strip_hard_start + ref_offset), split_method='SOFT')
                     newstrip_keep = newstrip_bin
                 # delete the final unused bit, if it exists
                 if newstrip_bin is not None and newstrip_bin.frame_final_duration > 0:
