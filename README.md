@@ -13,8 +13,8 @@ Select your strips - generally, one video strip and one audio strip that are the
 Click on Banging Cuts on the top right of the sequencer panel, and choose Make Cuts. A dialog appears and you can choose how many frames you want before and after the peak, the audio level to use as the threshold, and the operation mode. Make some appropriate choices.
 
 ### Operation modes:
-- **Bang:** Makes fixed-length clips at each point where the audio rises above threshold, and does not retrigger until after audio drops back below threshold.
-- **Remove Silence:** Makes variable-length clips containing the sections where the audio was above the threshold.
+- **Bang:** Makes fixed-length clips at each point where the audio rises above threshold, and does not retrigger until after audio drops back below threshold. Use pre- and post-roll frame counts to determine the length of the clip and the position of the audio peak within the clip.
+- **Remove Silence:** Makes variable-length clips containing the sections where the audio was above the threshold. Use the pre- and post-roll frame counts to control the smallest length of silence to be removed (low pre- and post-roll will result in more smaller clips).
 - **Naive:** Probably not useful. Tell me if you think otherwise.
 
 Click OK, and after a short* pause your clip will be reduced to however many smaller clips each containing one peak.

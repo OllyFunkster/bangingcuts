@@ -10,7 +10,7 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 7),
+    'version': (0, 8),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
@@ -136,9 +136,12 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                         if self.operation_mode == 'REMSILENCE':
                             # variable-length clips
                             outpoint = int(frame + self.frames_postroll)
-                            edits.append([inpoint, outpoint])
-                            # advance until after postroll since we have already got this one
-                            sampleindex += int((self.frames_postroll / actual_fps) * strip_samplerate)
+                            if len(edits) != 0 and inpoint < edits[len(edits) - 1][1]:
+                                # this inpoint is before the last clip's outpoint, merge the two
+                                edits[len(edits) - 1][1] = outpoint
+                            else:
+                                edits.append([inpoint, outpoint])
+                            # don't advance for post/pre-roll compensation, as the clip-merging deals with that.
                 else:
                     trigger_debounce = 0
             elif dataarray[sampleindex][0] > thresh_rising or dataarray[sampleindex][0] < (0 - thresh_rising):
@@ -164,6 +167,16 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                 progress_prev = progress
                 wm.progress_update(progress)
         wm.progress_end()
+        # deal with the case of the audio clip ending before falling back below threshold when removing silence
+        if triggered and self.operation_mode == 'REMSILENCE':
+            # variable-length clips
+            outpoint = int(frame + self.frames_postroll)
+            if len(edits) != 0 and inpoint < edits[len(edits) - 1][1]:
+                # this inpoint is before the last clip's outpoint, merge the two
+                edits[len(edits) - 1][1] = outpoint
+            else:
+                edits.append([inpoint, outpoint])
+            
         # TODO: do we need to delete the audsound object and/or clear the cache? or is that taken care of by the script exiting?
 
         if len(edits) == 0:
