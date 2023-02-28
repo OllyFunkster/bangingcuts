@@ -10,7 +10,7 @@
 bl_info = {
     'name': 'Banging Cuts',
     'author': 'Funkster',
-    'version': (0, 6),
+    'version': (0, 7),
     'blender': (2, 80, 0),
     'description': 'Banging Cuts addon for Blender VSE. Chop bits out of your strips in sync with audio peaks!',
     'category': 'Sequencer',
@@ -35,27 +35,29 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         description='audio level threshold for trigger',
         default=-15.0,
         max=-0.1,
-        )
+    )
         
     frames_preroll: bpy.props.IntProperty(
         name='Preroll frames',
         description='how many frames to keep before the trigger',
         default=1,
         min=0,
-        )
+    )
         
     frames_postroll: bpy.props.IntProperty(
         name='Postroll',
         description='how many frames to keep after the trigger',
         default=5,
         min=1,
-        )
+    )
     
-    auto_holdoff: bpy.props.BoolProperty(
-        name='Auto holdoff',
-        description="don't allow retrigger until level drops below threshold",
-        default=True,
-        )
+    operation_mode: bpy.props.EnumProperty(
+        items=( ('BANG', 'Bang (Auto Holdoff)', 'Isolate fixed-length clips at start of sections above threshold, don\'t retrigger'),
+                ('REMSILENCE', 'Remove Silence', 'Isolate variable-length clips where audio remains above threshold'),
+                ('NAIVE', 'Naive', 'Bang but with no auto-holdoff. Maybe never useful.')),
+        name = "Operation Mode",
+        default=0,
+    )
     
     def invoke(self, context, event):
         wm = context.window_manager
@@ -119,6 +121,8 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         progress_prev = 0
         triggered = False
         sampleindex = startsample
+        inpoint = 0
+        outpoint = 0
         while sampleindex < endsample:
             frame = actual_fps * (sampleindex / strip_samplerate)
             if triggered:
@@ -129,10 +133,16 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                             self.report({'INFO'}, 'Back below threshold at frame {}'.format(frame))
                         triggered = False
                         trigger_debounce = 0
+                        if self.operation_mode == 'REMSILENCE':
+                            # variable-length clips
+                            outpoint = int(frame + self.frames_postroll)
+                            edits.append([inpoint, outpoint])
+                            # advance until after postroll since we have already got this one
+                            sampleindex += int((self.frames_postroll / actual_fps) * strip_samplerate)
                 else:
                     trigger_debounce = 0
             elif dataarray[sampleindex][0] > thresh_rising or dataarray[sampleindex][0] < (0 - thresh_rising):
-                if self.auto_holdoff:
+                if self.operation_mode != 'NAIVE':
                     if DEBUG:
                         self.report({'INFO'}, 'Marking trigger active for holdoff at frame {}'.format(frame))
                     triggered = True
@@ -140,12 +150,14 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
                 inpoint = int(frame - self.frames_preroll)
                 if inpoint < 0:
                     inpoint = 0
-                outpoint = int(frame + self.frames_postroll)
-                edits.append([inpoint, outpoint])
-                # advance until after postroll since we have already got this one
-                sampleindex += int((self.frames_postroll / actual_fps) * strip_samplerate)
-                # also advance until after next preroll so we don't get repeats
-                sampleindex += int((self.frames_preroll / actual_fps) * strip_samplerate)
+                if self.operation_mode != 'REMSILENCE':
+                    # fixed-length clips
+                    outpoint = int(frame + self.frames_postroll)
+                    edits.append([inpoint, outpoint])
+                    # advance until after postroll since we have already got this one
+                    sampleindex += int((self.frames_postroll / actual_fps) * strip_samplerate)
+                    # also advance until after next preroll so we don't get repeats
+                    sampleindex += int((self.frames_preroll / actual_fps) * strip_samplerate)
             sampleindex += 1
             progress = int((100 * (sampleindex - startsample)) / (endsample - startsample))
             if progress_prev != progress:
@@ -162,7 +174,7 @@ class BANGING_CUTS_OT_make_cuts(bpy.types.Operator):
         clip_starts = []
         clip_starts.append(edits[0][0] + reference_start)
         for edit_index in range(1, len(edits)):
-            clip_starts.append(clip_starts[edit_index - 1] + self.frames_preroll + self.frames_postroll)
+            clip_starts.append(clip_starts[edit_index - 1] + (edits[edit_index - 1][1] - edits[edit_index - 1][0]))
             if DEBUG:
                 self.report({'INFO'}, 'Final position {} start {}'.format(edit_index, clip_starts[edit_index]))
         
